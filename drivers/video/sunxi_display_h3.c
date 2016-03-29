@@ -10,7 +10,7 @@
 #include <common.h>
 
 #include <asm/arch/clock.h>
-#include <asm/arch/display.h>
+#include <asm/arch/display_h3.h>
 #include <asm/arch/gpio.h>
 #include <asm/global_data.h>
 #include <asm/gpio.h>
@@ -329,7 +329,7 @@ static void sunxi_composer_init(void)
 		(struct sunxi_de_be_reg *)SUNXI_DE_BE0_BASE;
 	int i;
 
-	sunxi_frontend_init();
+	//sunxi_frontend_init();
 
 #ifdef CONFIG_SUNXI_GEN_SUN6I
 	/* Reset off */
