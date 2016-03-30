@@ -406,7 +406,7 @@ config VIDEO
 
 config VIDEO_HDMI
 	boolean "HDMI output support"
-	depends on VIDEO && !MACH_SUN8I
+	depends on VIDEO
 	default y
 	---help---
 	Say Y here to add support for outputting video over HDMI.
