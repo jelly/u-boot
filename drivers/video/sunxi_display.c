@@ -10,7 +10,7 @@
 #include <common.h>
 
 #include <asm/arch/clock.h>
-#include <asm/arch/display.h>
+#include <asm/arch/display_h3.h>
 #include <asm/arch/gpio.h>
 #include <asm/global_data.h>
 #include <asm/gpio.h>
@@ -23,9 +23,6 @@
 #include <malloc.h>
 #include <video_fb.h>
 #include "videomodes.h"
-#include "anx9804.h"
-#include "hitachi_tx18d42vm_lcd.h"
-#include "ssd2828.h"
 
 #ifdef CONFIG_VIDEO_LCD_BL_PWM_ACTIVE_LOW
 #define PWM_ON 0
@@ -89,31 +86,144 @@ static int sunxi_hdmi_hpd_detect(int hpd_delay)
 	struct sunxi_hdmi_reg * const hdmi =
 		(struct sunxi_hdmi_reg *)SUNXI_HDMI_BASE;
 	unsigned long tmo = timer_get_us() + hpd_delay * 1000;
+	printf("sunxi_hdmi_hpd_detect.\n");
 
 	/* Set pll3 to 300MHz */
 	clock_set_pll3(300000000);
 
 	/* Set hdmi parent to pll3 */
+	// IS OK?
 	clrsetbits_le32(&ccm->hdmi_clk_cfg, CCM_HDMI_CTRL_PLL_MASK,
 			CCM_HDMI_CTRL_PLL3);
 
 	/* Set ahb gating to pass */
-#ifdef CONFIG_SUNXI_GEN_SUN6I
-	setbits_le32(&ccm->ahb_reset1_cfg, 1 << AHB_RESET_OFFSET_HDMI);
-#endif
+//#ifdef CONFIG_SUNXI_GEN_SUN6I
+	setbits_le32(&ccm->ahb_reset1_cfg, 1 << AHB_RESET_OFFSET_HDMI | 1 << 10);
+	//u32 ps_clk_cfg;		/* 0x154 PS module clock */
+	// HDMI_SLOW_CFG_CLOCK
+	setbits_le32(&ccm->ps_clk_cfg, 1 << 31);
+//#endif
 	setbits_le32(&ccm->ahb_gate1, 1 << AHB_GATE_OFFSET_HDMI);
 
 	/* Clock on */
 	setbits_le32(&ccm->hdmi_clk_cfg, CCM_HDMI_CTRL_GATE);
 
-	writel(SUNXI_HDMI_CTRL_ENABLE, &hdmi->ctrl);
-	writel(SUNXI_HDMI_PAD_CTRL0_HDP, &hdmi->pad_ctrl0);
 
+	#define H3_HDMI_BASE_ADDR 0x01ee0000
+	/* http://linux-sunxi.org/DWC_HDMI_Controller */
+	#define H3_HDMI_PHY_CTRL  0x01ef0020
+	#define H3_HDMI_PHY_STATUS 0x01ef0038
+
+	// FIXME: remove, also this is defined thrice already in the u-boot code base..
+	#define msleep(a)   udelay(a * 1000)
+	/* bsp_hdmi_init() from h3-hdmi from Francois */
+
+	/* 
+	 * arch/arm/mach-sunxi/include/mach/sun8i/platform-sun8iw7p1.h:#define SUNXI_HDMI_PBASE                0x01ee0000
+	 *
+	 */
+	//hdmi_writel(priv, 0x10020, 0);
+	writel(0, H3_HDMI_PHY_CTRL);
+	//hdmi_writel(priv, 0x10020, 1 << 0);
+	writel(1 << 0, H3_HDMI_PHY_CTRL);
+	udelay(5);
+
+	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 16));
+	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 16), H3_HDMI_PHY_CTRL);
+
+	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 1));
+	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 1), H3_HDMI_PHY_CTRL);
+
+	udelay(10);
+	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 2));
+	writel(readl(H3_HDMI_PHY_CTRL) | (1<<2), H3_HDMI_PHY_CTRL);
+
+	udelay(5);
+	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 3));
+	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 2), H3_HDMI_PHY_CTRL);
+
+	udelay(40);
+	//usleep_range(40, 50); eh??
+	
+	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 19));
+	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 19), H3_HDMI_PHY_CTRL);
+
+	udelay(100);
+	//usleep_range(100, 120); eh?
+	
+	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 18));
+	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 18), H3_HDMI_PHY_CTRL);
+
+	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (7 << 4));
+	writel(readl(H3_HDMI_PHY_CTRL) | (7 << 4), H3_HDMI_PHY_CTRL);
+
+
+	int init = 0;
 	while (timer_get_us() < tmo) {
-		if (readl(&hdmi->hpd) & SUNXI_HDMI_HPD_DETECT)
-			return 1;
+		if ((readl(H3_HDMI_PHY_STATUS) & 0x80) == 0x80) {
+			printf("first init stage completed\n");
+			init = 1;
+			break;
+		}
 	}
 
+	if (init != 1) {
+		return 1;
+	}
+
+	//writel(SUNXI_HDMI_CTRL_ENABLE, &hdmi->ctrl);
+	//writel(SUNXI_HDMI_PAD_CTRL0_HDP, &hdmi->pad_ctrl0);
+	writeb(0x45 ,0x1ef0010);
+	writeb(0x45 ,0x1ef0011);
+	writeb(0x52 ,0x1ef0012);
+	writeb(0x54 ,0x1ef0013);
+
+	while (timer_get_us() < tmo) {
+		if (readl(0x1ef0038) & 0x80000) {
+			printf("hpd support found!\n");
+			return 1;
+		}
+	}
+
+	/* Further init stuff in bsp_hdmi_init() */
+	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (0xf << 8));
+	writel(readl(H3_HDMI_PHY_CTRL) | (0xf << 8), H3_HDMI_PHY_CTRL);
+
+	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 7));
+	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 7), H3_HDMI_PHY_CTRL);
+
+	//hdmi_writel(priv, 0x1002c, 0x39dc5040);
+	writel(0x39dc5040, H3_HDMI_BASE_ADDR + 0x1002c);
+
+	//hdmi_writel(priv, 0x10030, 0x80084343); // H3_HDMI_PHY_CLK???
+	writel(0x80084343, H3_HDMI_BASE_ADDR + 0x10030);
+
+	msleep(10);
+	//hdmi_writel(priv, 0x10034, 0x00000001);
+	writel(0x00000001, H3_HDMI_BASE_ADDR + 0x10034);
+
+	//hdmi_writel(priv, 0x1002c, hdmi_readl(priv, 0x1002c) | 0x02000000);
+	writel(readl(H3_HDMI_BASE_ADDR + 0x1002c) | 0x02000000, H3_HDMI_BASE_ADDR + 0x1002c);
+
+	msleep(100);
+
+	//tmp = hdmi_readl(priv, 0x10038);
+	u32 tmp = readl(H3_HDMI_BASE_ADDR + 0x10038);
+	
+	//hdmi_writel(priv, 0x1002c, hdmi_readl(priv, 0x1002c) | 0xc0000000);
+	writel(readl(H3_HDMI_BASE_ADDR + 0x1002c) | 0xc0000000, H3_HDMI_BASE_ADDR + 0x1002c);
+
+	//hdmi_writel(priv, 0x1002c, hdmi_readl(priv, 0x1002c) | ((tmp >> 11) & 0x3f));
+	writel(readl(H3_HDMI_BASE_ADDR + 0x1002c) | ((tmp >> 11) & 0x3f), H3_HDMI_BASE_ADDR + 0x1002c);
+
+	//hdmi_writel(priv, 0x10020, 0x01ff0f7f);
+	writel(0x01ff0f7f, H3_HDMI_BASE_ADDR + 0x10020);
+	//hdmi_writel(priv, 0x10024, 0x80639000);
+	writel(0x80639000, H3_HDMI_BASE_ADDR + 0x10024);
+	//hdmi_writel(priv, 0x10028, 0x0f81c405);
+	writel(0x0f81c405, H3_HDMI_BASE_ADDR + 0x10028);
+
+	printf("no hpd support\n");
 	return 0;
 }
 
@@ -296,113 +406,10 @@ static int sunxi_hdmi_edid_get_mode(struct ctfb_res_modes *mode)
 
 #endif /* CONFIG_VIDEO_HDMI */
 
-#ifdef CONFIG_MACH_SUN4I
-/*
- * Testing has shown that on sun4i the display backend engine does not have
- * deep enough fifo-s causing flickering / tearing in full-hd mode due to
- * fifo underruns. So on sun4i we use the display frontend engine to do the
- * dma from memory, as the frontend does have deep enough fifo-s.
- */
-
-static const u32 sun4i_vert_coef[32] = {
-	0x00004000, 0x000140ff, 0x00033ffe, 0x00043ffd,
-	0x00063efc, 0xff083dfc, 0x000a3bfb, 0xff0d39fb,
-	0xff0f37fb, 0xff1136fa, 0xfe1433fb, 0xfe1631fb,
-	0xfd192ffb, 0xfd1c2cfb, 0xfd1f29fb, 0xfc2127fc,
-	0xfc2424fc, 0xfc2721fc, 0xfb291ffd, 0xfb2c1cfd,
-	0xfb2f19fd, 0xfb3116fe, 0xfb3314fe, 0xfa3611ff,
-	0xfb370fff, 0xfb390dff, 0xfb3b0a00, 0xfc3d08ff,
-	0xfc3e0600, 0xfd3f0400, 0xfe3f0300, 0xff400100,
-};
-
-static const u32 sun4i_horz_coef[64] = {
-	0x40000000, 0x00000000, 0x40fe0000, 0x0000ff03,
-	0x3ffd0000, 0x0000ff05, 0x3ffc0000, 0x0000ff06,
-	0x3efb0000, 0x0000ff08, 0x3dfb0000, 0x0000ff09,
-	0x3bfa0000, 0x0000fe0d, 0x39fa0000, 0x0000fe0f,
-	0x38fa0000, 0x0000fe10, 0x36fa0000, 0x0000fe12,
-	0x33fa0000, 0x0000fd16, 0x31fa0000, 0x0000fd18,
-	0x2ffa0000, 0x0000fd1a, 0x2cfa0000, 0x0000fc1e,
-	0x29fa0000, 0x0000fc21, 0x27fb0000, 0x0000fb23,
-	0x24fb0000, 0x0000fb26, 0x21fb0000, 0x0000fb29,
-	0x1ffc0000, 0x0000fa2b, 0x1cfc0000, 0x0000fa2e,
-	0x19fd0000, 0x0000fa30, 0x16fd0000, 0x0000fa33,
-	0x14fd0000, 0x0000fa35, 0x11fe0000, 0x0000fa37,
-	0x0ffe0000, 0x0000fa39, 0x0dfe0000, 0x0000fa3b,
-	0x0afe0000, 0x0000fa3e, 0x08ff0000, 0x0000fb3e,
-	0x06ff0000, 0x0000fb40, 0x05ff0000, 0x0000fc40,
-	0x03ff0000, 0x0000fd41, 0x01ff0000, 0x0000fe42,
-};
-
-static void sunxi_frontend_init(void)
-{
-	struct sunxi_ccm_reg * const ccm =
-		(struct sunxi_ccm_reg *)SUNXI_CCM_BASE;
-	struct sunxi_de_fe_reg * const de_fe =
-		(struct sunxi_de_fe_reg *)SUNXI_DE_FE0_BASE;
-	int i;
-
-	/* Clocks on */
-	setbits_le32(&ccm->ahb_gate1, 1 << AHB_GATE_OFFSET_DE_FE0);
-	setbits_le32(&ccm->dram_clk_gate, 1 << CCM_DRAM_GATE_OFFSET_DE_FE0);
-	clock_set_de_mod_clock(&ccm->fe0_clk_cfg, 300000000);
-
-	setbits_le32(&de_fe->enable, SUNXI_DE_FE_ENABLE_EN);
-
-	for (i = 0; i < 32; i++) {
-		writel(sun4i_horz_coef[2 * i], &de_fe->ch0_horzcoef0[i]);
-		writel(sun4i_horz_coef[2 * i + 1], &de_fe->ch0_horzcoef1[i]);
-		writel(sun4i_vert_coef[i], &de_fe->ch0_vertcoef[i]);
-		writel(sun4i_horz_coef[2 * i], &de_fe->ch1_horzcoef0[i]);
-		writel(sun4i_horz_coef[2 * i + 1], &de_fe->ch1_horzcoef1[i]);
-		writel(sun4i_vert_coef[i], &de_fe->ch1_vertcoef[i]);
-	}
-
-	setbits_le32(&de_fe->frame_ctrl, SUNXI_DE_FE_FRAME_CTRL_COEF_RDY);
-}
-
-static void sunxi_frontend_mode_set(const struct ctfb_res_modes *mode,
-				    unsigned int address)
-{
-	struct sunxi_de_fe_reg * const de_fe =
-		(struct sunxi_de_fe_reg *)SUNXI_DE_FE0_BASE;
-
-	setbits_le32(&de_fe->bypass, SUNXI_DE_FE_BYPASS_CSC_BYPASS);
-	writel(CONFIG_SYS_SDRAM_BASE + address, &de_fe->ch0_addr);
-	writel(mode->xres * 4, &de_fe->ch0_stride);
-	writel(SUNXI_DE_FE_INPUT_FMT_ARGB8888, &de_fe->input_fmt);
-	writel(SUNXI_DE_FE_OUTPUT_FMT_ARGB8888, &de_fe->output_fmt);
-
-	writel(SUNXI_DE_FE_HEIGHT(mode->yres) | SUNXI_DE_FE_WIDTH(mode->xres),
-	       &de_fe->ch0_insize);
-	writel(SUNXI_DE_FE_HEIGHT(mode->yres) | SUNXI_DE_FE_WIDTH(mode->xres),
-	       &de_fe->ch0_outsize);
-	writel(SUNXI_DE_FE_FACTOR_INT(1), &de_fe->ch0_horzfact);
-	writel(SUNXI_DE_FE_FACTOR_INT(1), &de_fe->ch0_vertfact);
-
-	writel(SUNXI_DE_FE_HEIGHT(mode->yres) | SUNXI_DE_FE_WIDTH(mode->xres),
-	       &de_fe->ch1_insize);
-	writel(SUNXI_DE_FE_HEIGHT(mode->yres) | SUNXI_DE_FE_WIDTH(mode->xres),
-	       &de_fe->ch1_outsize);
-	writel(SUNXI_DE_FE_FACTOR_INT(1), &de_fe->ch1_horzfact);
-	writel(SUNXI_DE_FE_FACTOR_INT(1), &de_fe->ch1_vertfact);
-
-	setbits_le32(&de_fe->frame_ctrl, SUNXI_DE_FE_FRAME_CTRL_REG_RDY);
-}
-
-static void sunxi_frontend_enable(void)
-{
-	struct sunxi_de_fe_reg * const de_fe =
-		(struct sunxi_de_fe_reg *)SUNXI_DE_FE0_BASE;
-
-	setbits_le32(&de_fe->frame_ctrl, SUNXI_DE_FE_FRAME_CTRL_FRM_START);
-}
-#else
 static void sunxi_frontend_init(void) {}
 static void sunxi_frontend_mode_set(const struct ctfb_res_modes *mode,
 				    unsigned int address) {}
 static void sunxi_frontend_enable(void) {}
-#endif
 
 static bool sunxi_is_composite(void)
 {
@@ -435,7 +442,7 @@ static void sunxi_composer_init(void)
 		(struct sunxi_de_be_reg *)SUNXI_DE_BE0_BASE;
 	int i;
 
-	sunxi_frontend_init();
+	//sunxi_frontend_init();
 
 #ifdef CONFIG_SUNXI_GEN_SUN6I
 	/* Reset off */
@@ -444,9 +451,7 @@ static void sunxi_composer_init(void)
 
 	/* Clocks on */
 	setbits_le32(&ccm->ahb_gate1, 1 << AHB_GATE_OFFSET_DE_BE0);
-#ifndef CONFIG_MACH_SUN4I /* On sun4i the frontend does the dma */
 	setbits_le32(&ccm->dram_clk_gate, 1 << CCM_DRAM_GATE_OFFSET_DE_BE0);
-#endif
 	clock_set_de_mod_clock(&ccm->be0_clk_cfg, 300000000);
 
 	/* Engine bug, clear registers after reset */
@@ -475,13 +480,9 @@ static void sunxi_composer_mode_set(const struct ctfb_res_modes *mode,
 	       &de_be->disp_size);
 	writel(SUNXI_DE_BE_HEIGHT(mode->yres) | SUNXI_DE_BE_WIDTH(mode->xres),
 	       &de_be->layer0_size);
-#ifndef CONFIG_MACH_SUN4I /* On sun4i the frontend does the dma */
 	writel(SUNXI_DE_BE_LAYER_STRIDE(mode->xres), &de_be->layer0_stride);
 	writel(address << 3, &de_be->layer0_addr_low32b);
 	writel(address >> 29, &de_be->layer0_addr_high4b);
-#else
-	writel(SUNXI_DE_BE_LAYER_ATTR0_SRC_FE0, &de_be->layer0_attr0_ctrl);
-#endif
 	writel(SUNXI_DE_BE_LAYER_ATTR1_FMT_XRGB8888, &de_be->layer0_attr1_ctrl);
 
 	setbits_le32(&de_be->mode, SUNXI_DE_BE_MODE_LAYER0_ENABLE);
@@ -690,43 +691,6 @@ static void sunxi_lcdc_enable(void)
 #endif
 }
 
-static void sunxi_lcdc_panel_enable(void)
-{
-	int pin, reset_pin;
-
-	/*
-	 * Start with backlight disabled to avoid the screen flashing to
-	 * white while the lcd inits.
-	 */
-	pin = sunxi_name_to_gpio(CONFIG_VIDEO_LCD_BL_EN);
-	if (pin >= 0) {
-		gpio_request(pin, "lcd_backlight_enable");
-		gpio_direction_output(pin, 0);
-	}
-
-	pin = sunxi_name_to_gpio(CONFIG_VIDEO_LCD_BL_PWM);
-	if (pin >= 0) {
-		gpio_request(pin, "lcd_backlight_pwm");
-		gpio_direction_output(pin, PWM_OFF);
-	}
-
-	reset_pin = sunxi_name_to_gpio(CONFIG_VIDEO_LCD_RESET);
-	if (reset_pin >= 0) {
-		gpio_request(reset_pin, "lcd_reset");
-		gpio_direction_output(reset_pin, 0); /* Assert reset */
-	}
-
-	/* Give the backlight some time to turn off and power up the panel. */
-	mdelay(40);
-	pin = sunxi_name_to_gpio(CONFIG_VIDEO_LCD_POWER);
-	if (pin >= 0) {
-		gpio_request(pin, "lcd_power");
-		gpio_direction_output(pin, 1);
-	}
-
-	if (reset_pin >= 0)
-		gpio_direction_output(reset_pin, 1); /* De-assert reset */
-}
 
 static void sunxi_lcdc_backlight_enable(void)
 {
@@ -760,95 +724,6 @@ static int sunxi_lcdc_get_clk_delay(const struct ctfb_res_modes *mode, int tcon)
 	return (delay > 30) ? 30 : delay;
 }
 
-static void sunxi_lcdc_tcon0_mode_set(const struct ctfb_res_modes *mode,
-				      bool for_ext_vga_dac)
-{
-	struct sunxi_lcdc_reg * const lcdc =
-		(struct sunxi_lcdc_reg *)SUNXI_LCD0_BASE;
-	int bp, clk_delay, clk_div, clk_double, pin, total, val;
-
-	for (pin = SUNXI_GPD(0); pin <= SUNXI_GPD(27); pin++) {
-#ifdef CONFIG_VIDEO_LCD_IF_PARALLEL
-		sunxi_gpio_set_cfgpin(pin, SUNXI_GPD_LCD0);
-#endif
-#ifdef CONFIG_VIDEO_LCD_IF_LVDS
-		sunxi_gpio_set_cfgpin(pin, SUNXI_GPD_LVDS0);
-#endif
-#ifdef CONFIG_VIDEO_LCD_PANEL_EDP_4_LANE_1620M_VIA_ANX9804
-		sunxi_gpio_set_drv(pin, 3);
-#endif
-	}
-
-	sunxi_lcdc_pll_set(0, mode->pixclock_khz, &clk_div, &clk_double);
-
-	/* Use tcon0 */
-	clrsetbits_le32(&lcdc->ctrl, SUNXI_LCDC_CTRL_IO_MAP_MASK,
-			SUNXI_LCDC_CTRL_IO_MAP_TCON0);
-
-	clk_delay = sunxi_lcdc_get_clk_delay(mode, 0);
-	writel(SUNXI_LCDC_TCON0_CTRL_ENABLE |
-	       SUNXI_LCDC_TCON0_CTRL_CLK_DELAY(clk_delay), &lcdc->tcon0_ctrl);
-
-	writel(SUNXI_LCDC_TCON0_DCLK_ENABLE |
-	       SUNXI_LCDC_TCON0_DCLK_DIV(clk_div), &lcdc->tcon0_dclk);
-
-	writel(SUNXI_LCDC_X(mode->xres) | SUNXI_LCDC_Y(mode->yres),
-	       &lcdc->tcon0_timing_active);
-
-	bp = mode->hsync_len + mode->left_margin;
-	total = mode->xres + mode->right_margin + bp;
-	writel(SUNXI_LCDC_TCON0_TIMING_H_TOTAL(total) |
-	       SUNXI_LCDC_TCON0_TIMING_H_BP(bp), &lcdc->tcon0_timing_h);
-
-	bp = mode->vsync_len + mode->upper_margin;
-	total = mode->yres + mode->lower_margin + bp;
-	writel(SUNXI_LCDC_TCON0_TIMING_V_TOTAL(total) |
-	       SUNXI_LCDC_TCON0_TIMING_V_BP(bp), &lcdc->tcon0_timing_v);
-
-#ifdef CONFIG_VIDEO_LCD_IF_PARALLEL
-	writel(SUNXI_LCDC_X(mode->hsync_len) | SUNXI_LCDC_Y(mode->vsync_len),
-	       &lcdc->tcon0_timing_sync);
-
-	writel(0, &lcdc->tcon0_hv_intf);
-	writel(0, &lcdc->tcon0_cpu_intf);
-#endif
-#ifdef CONFIG_VIDEO_LCD_IF_LVDS
-	val = (sunxi_display.depth == 18) ? 1 : 0;
-	writel(SUNXI_LCDC_TCON0_LVDS_INTF_BITWIDTH(val) |
-	       SUNXI_LCDC_TCON0_LVDS_CLK_SEL_TCON0, &lcdc->tcon0_lvds_intf);
-#endif
-
-	if (sunxi_display.depth == 18 || sunxi_display.depth == 16) {
-		writel(SUNXI_LCDC_TCON0_FRM_SEED, &lcdc->tcon0_frm_seed[0]);
-		writel(SUNXI_LCDC_TCON0_FRM_SEED, &lcdc->tcon0_frm_seed[1]);
-		writel(SUNXI_LCDC_TCON0_FRM_SEED, &lcdc->tcon0_frm_seed[2]);
-		writel(SUNXI_LCDC_TCON0_FRM_SEED, &lcdc->tcon0_frm_seed[3]);
-		writel(SUNXI_LCDC_TCON0_FRM_SEED, &lcdc->tcon0_frm_seed[4]);
-		writel(SUNXI_LCDC_TCON0_FRM_SEED, &lcdc->tcon0_frm_seed[5]);
-		writel(SUNXI_LCDC_TCON0_FRM_TAB0, &lcdc->tcon0_frm_table[0]);
-		writel(SUNXI_LCDC_TCON0_FRM_TAB1, &lcdc->tcon0_frm_table[1]);
-		writel(SUNXI_LCDC_TCON0_FRM_TAB2, &lcdc->tcon0_frm_table[2]);
-		writel(SUNXI_LCDC_TCON0_FRM_TAB3, &lcdc->tcon0_frm_table[3]);
-		writel(((sunxi_display.depth == 18) ?
-			SUNXI_LCDC_TCON0_FRM_CTRL_RGB666 :
-			SUNXI_LCDC_TCON0_FRM_CTRL_RGB565),
-		       &lcdc->tcon0_frm_ctrl);
-	}
-
-	val = SUNXI_LCDC_TCON0_IO_POL_DCLK_PHASE(CONFIG_VIDEO_LCD_DCLK_PHASE);
-	if (!(mode->sync & FB_SYNC_HOR_HIGH_ACT))
-		val |= SUNXI_LCDC_TCON_HSYNC_MASK;
-	if (!(mode->sync & FB_SYNC_VERT_HIGH_ACT))
-		val |= SUNXI_LCDC_TCON_VSYNC_MASK;
-
-#ifdef CONFIG_VIDEO_VGA_VIA_LCD_FORCE_SYNC_ACTIVE_HIGH
-	if (for_ext_vga_dac)
-		val = 0;
-#endif
-	writel(val, &lcdc->tcon0_io_polarity);
-
-	writel(0, &lcdc->tcon0_io_tristate);
-}
 
 #if defined CONFIG_VIDEO_HDMI || defined CONFIG_VIDEO_VGA || defined CONFIG_VIDEO_COMPOSITE
 static void sunxi_lcdc_tcon1_mode_set(const struct ctfb_res_modes *mode,
@@ -1032,98 +907,6 @@ static void sunxi_hdmi_enable(void)
 
 #endif /* CONFIG_VIDEO_HDMI */
 
-#if defined CONFIG_VIDEO_VGA || defined CONFIG_VIDEO_COMPOSITE
-
-static void sunxi_tvencoder_mode_set(void)
-{
-	struct sunxi_ccm_reg * const ccm =
-		(struct sunxi_ccm_reg *)SUNXI_CCM_BASE;
-	struct sunxi_tve_reg * const tve =
-		(struct sunxi_tve_reg *)SUNXI_TVE0_BASE;
-
-	/* Reset off */
-	setbits_le32(&ccm->lcd0_ch0_clk_cfg, CCM_LCD_CH0_CTRL_TVE_RST);
-	/* Clock on */
-	setbits_le32(&ccm->ahb_gate1, 1 << AHB_GATE_OFFSET_TVE0);
-
-	switch (sunxi_display.monitor) {
-	case sunxi_monitor_vga:
-		writel(SUNXI_TVE_GCTRL_DAC_INPUT(0, 1) |
-		       SUNXI_TVE_GCTRL_DAC_INPUT(1, 2) |
-		       SUNXI_TVE_GCTRL_DAC_INPUT(2, 3), &tve->gctrl);
-		writel(SUNXI_TVE_CFG0_VGA, &tve->cfg0);
-		writel(SUNXI_TVE_DAC_CFG0_VGA, &tve->dac_cfg0);
-		writel(SUNXI_TVE_UNKNOWN1_VGA, &tve->unknown1);
-		break;
-	case sunxi_monitor_composite_pal_nc:
-		writel(SUNXI_TVE_CHROMA_FREQ_PAL_NC, &tve->chroma_freq);
-		/* Fall through */
-	case sunxi_monitor_composite_pal:
-		writel(SUNXI_TVE_GCTRL_DAC_INPUT(0, 1) |
-		       SUNXI_TVE_GCTRL_DAC_INPUT(1, 2) |
-		       SUNXI_TVE_GCTRL_DAC_INPUT(2, 3) |
-		       SUNXI_TVE_GCTRL_DAC_INPUT(3, 4), &tve->gctrl);
-		writel(SUNXI_TVE_CFG0_PAL, &tve->cfg0);
-		writel(SUNXI_TVE_DAC_CFG0_COMPOSITE, &tve->dac_cfg0);
-		writel(SUNXI_TVE_FILTER_COMPOSITE, &tve->filter);
-		writel(SUNXI_TVE_PORCH_NUM_PAL, &tve->porch_num);
-		writel(SUNXI_TVE_LINE_NUM_PAL, &tve->line_num);
-		writel(SUNXI_TVE_BLANK_BLACK_LEVEL_PAL, &tve->blank_black_level);
-		writel(SUNXI_TVE_UNKNOWN1_COMPOSITE, &tve->unknown1);
-		writel(SUNXI_TVE_CBR_LEVEL_PAL, &tve->cbr_level);
-		writel(SUNXI_TVE_BURST_WIDTH_COMPOSITE, &tve->burst_width);
-		writel(SUNXI_TVE_UNKNOWN2_PAL, &tve->unknown2);
-		writel(SUNXI_TVE_ACTIVE_NUM_COMPOSITE, &tve->active_num);
-		writel(SUNXI_TVE_CHROMA_BW_GAIN_COMP, &tve->chroma_bw_gain);
-		writel(SUNXI_TVE_NOTCH_WIDTH_COMPOSITE, &tve->notch_width);
-		writel(SUNXI_TVE_RESYNC_NUM_PAL, &tve->resync_num);
-		writel(SUNXI_TVE_SLAVE_PARA_COMPOSITE, &tve->slave_para);
-		break;
-	case sunxi_monitor_composite_pal_m:
-		writel(SUNXI_TVE_CHROMA_FREQ_PAL_M, &tve->chroma_freq);
-		writel(SUNXI_TVE_COLOR_BURST_PAL_M, &tve->color_burst);
-		/* Fall through */
-	case sunxi_monitor_composite_ntsc:
-		writel(SUNXI_TVE_GCTRL_DAC_INPUT(0, 1) |
-		       SUNXI_TVE_GCTRL_DAC_INPUT(1, 2) |
-		       SUNXI_TVE_GCTRL_DAC_INPUT(2, 3) |
-		       SUNXI_TVE_GCTRL_DAC_INPUT(3, 4), &tve->gctrl);
-		writel(SUNXI_TVE_CFG0_NTSC, &tve->cfg0);
-		writel(SUNXI_TVE_DAC_CFG0_COMPOSITE, &tve->dac_cfg0);
-		writel(SUNXI_TVE_FILTER_COMPOSITE, &tve->filter);
-		writel(SUNXI_TVE_PORCH_NUM_NTSC, &tve->porch_num);
-		writel(SUNXI_TVE_LINE_NUM_NTSC, &tve->line_num);
-		writel(SUNXI_TVE_BLANK_BLACK_LEVEL_NTSC, &tve->blank_black_level);
-		writel(SUNXI_TVE_UNKNOWN1_COMPOSITE, &tve->unknown1);
-		writel(SUNXI_TVE_CBR_LEVEL_NTSC, &tve->cbr_level);
-		writel(SUNXI_TVE_BURST_PHASE_NTSC, &tve->burst_phase);
-		writel(SUNXI_TVE_BURST_WIDTH_COMPOSITE, &tve->burst_width);
-		writel(SUNXI_TVE_UNKNOWN2_NTSC, &tve->unknown2);
-		writel(SUNXI_TVE_SYNC_VBI_LEVEL_NTSC, &tve->sync_vbi_level);
-		writel(SUNXI_TVE_ACTIVE_NUM_COMPOSITE, &tve->active_num);
-		writel(SUNXI_TVE_CHROMA_BW_GAIN_COMP, &tve->chroma_bw_gain);
-		writel(SUNXI_TVE_NOTCH_WIDTH_COMPOSITE, &tve->notch_width);
-		writel(SUNXI_TVE_RESYNC_NUM_NTSC, &tve->resync_num);
-		writel(SUNXI_TVE_SLAVE_PARA_COMPOSITE, &tve->slave_para);
-		break;
-	case sunxi_monitor_none:
-	case sunxi_monitor_dvi:
-	case sunxi_monitor_hdmi:
-	case sunxi_monitor_lcd:
-		break;
-	}
-}
-
-static void sunxi_tvencoder_enable(void)
-{
-	struct sunxi_tve_reg * const tve =
-		(struct sunxi_tve_reg *)SUNXI_TVE0_BASE;
-
-	setbits_le32(&tve->gctrl, SUNXI_TVE_GCTRL_ENABLE);
-}
-
-#endif /* CONFIG_VIDEO_VGA || defined CONFIG_VIDEO_COMPOSITE */
-
 static void sunxi_drc_init(void)
 {
 #ifdef CONFIG_SUNXI_GEN_SUN6I
@@ -1138,53 +921,6 @@ static void sunxi_drc_init(void)
 	clock_set_de_mod_clock(&ccm->iep_drc0_clk_cfg, 300000000);
 #endif
 }
-
-#ifdef CONFIG_VIDEO_VGA_VIA_LCD
-static void sunxi_vga_external_dac_enable(void)
-{
-	int pin;
-
-	pin = sunxi_name_to_gpio(CONFIG_VIDEO_VGA_EXTERNAL_DAC_EN);
-	if (pin >= 0) {
-		gpio_request(pin, "vga_enable");
-		gpio_direction_output(pin, 1);
-	}
-}
-#endif /* CONFIG_VIDEO_VGA_VIA_LCD */
-
-#ifdef CONFIG_VIDEO_LCD_SSD2828
-static int sunxi_ssd2828_init(const struct ctfb_res_modes *mode)
-{
-	struct ssd2828_config cfg = {
-		.csx_pin = name_to_gpio(CONFIG_VIDEO_LCD_SPI_CS),
-		.sck_pin = name_to_gpio(CONFIG_VIDEO_LCD_SPI_SCLK),
-		.sdi_pin = name_to_gpio(CONFIG_VIDEO_LCD_SPI_MOSI),
-		.sdo_pin = name_to_gpio(CONFIG_VIDEO_LCD_SPI_MISO),
-		.reset_pin = name_to_gpio(CONFIG_VIDEO_LCD_SSD2828_RESET),
-		.ssd2828_tx_clk_khz  = CONFIG_VIDEO_LCD_SSD2828_TX_CLK * 1000,
-		.ssd2828_color_depth = 24,
-#ifdef CONFIG_VIDEO_LCD_PANEL_MIPI_4_LANE_513_MBPS_VIA_SSD2828
-		.mipi_dsi_number_of_data_lanes           = 4,
-		.mipi_dsi_bitrate_per_data_lane_mbps     = 513,
-		.mipi_dsi_delay_after_exit_sleep_mode_ms = 100,
-		.mipi_dsi_delay_after_set_display_on_ms  = 200
-#else
-#error MIPI LCD panel needs configuration parameters
-#endif
-	};
-
-	if (cfg.csx_pin == -1 || cfg.sck_pin == -1 || cfg.sdi_pin == -1) {
-		printf("SSD2828: SPI pins are not properly configured\n");
-		return 1;
-	}
-	if (cfg.reset_pin == -1) {
-		printf("SSD2828: Reset pin is not properly configured\n");
-		return 1;
-	}
-
-	return ssd2828_init(&cfg, mode);
-}
-#endif /* CONFIG_VIDEO_LCD_SSD2828 */
 
 static void sunxi_engines_init(void)
 {
@@ -1210,67 +946,6 @@ static void sunxi_mode_set(const struct ctfb_res_modes *mode,
 		sunxi_composer_enable();
 		sunxi_lcdc_enable();
 		sunxi_hdmi_enable();
-#endif
-		break;
-	case sunxi_monitor_lcd:
-		sunxi_lcdc_panel_enable();
-		if (IS_ENABLED(CONFIG_VIDEO_LCD_PANEL_EDP_4_LANE_1620M_VIA_ANX9804)) {
-			/*
-			 * The anx9804 needs 1.8V from eldo3, we do this here
-			 * and not via CONFIG_AXP_ELDO3_VOLT from board_init()
-			 * to avoid turning this on when using hdmi output.
-			 */
-			axp_set_eldo(3, 1800);
-			anx9804_init(CONFIG_VIDEO_LCD_I2C_BUS, 4,
-				     ANX9804_DATA_RATE_1620M,
-				     sunxi_display.depth);
-		}
-		if (IS_ENABLED(CONFIG_VIDEO_LCD_HITACHI_TX18D42VM)) {
-			mdelay(50); /* Wait for lcd controller power on */
-			hitachi_tx18d42vm_init();
-		}
-		if (IS_ENABLED(CONFIG_VIDEO_LCD_TL059WV5C0)) {
-			unsigned int orig_i2c_bus = i2c_get_bus_num();
-			i2c_set_bus_num(CONFIG_VIDEO_LCD_I2C_BUS);
-			i2c_reg_write(0x5c, 0x04, 0x42); /* Turn on the LCD */
-			i2c_set_bus_num(orig_i2c_bus);
-		}
-		sunxi_composer_mode_set(mode, address);
-		sunxi_lcdc_tcon0_mode_set(mode, false);
-		sunxi_composer_enable();
-		sunxi_lcdc_enable();
-#ifdef CONFIG_VIDEO_LCD_SSD2828
-		sunxi_ssd2828_init(mode);
-#endif
-		sunxi_lcdc_backlight_enable();
-		break;
-	case sunxi_monitor_vga:
-#ifdef CONFIG_VIDEO_VGA
-		sunxi_composer_mode_set(mode, address);
-		sunxi_lcdc_tcon1_mode_set(mode, &clk_div, &clk_double, 1);
-		sunxi_tvencoder_mode_set();
-		sunxi_composer_enable();
-		sunxi_lcdc_enable();
-		sunxi_tvencoder_enable();
-#elif defined CONFIG_VIDEO_VGA_VIA_LCD
-		sunxi_composer_mode_set(mode, address);
-		sunxi_lcdc_tcon0_mode_set(mode, true);
-		sunxi_composer_enable();
-		sunxi_lcdc_enable();
-		sunxi_vga_external_dac_enable();
-#endif
-		break;
-	case sunxi_monitor_composite_pal:
-	case sunxi_monitor_composite_ntsc:
-	case sunxi_monitor_composite_pal_m:
-	case sunxi_monitor_composite_pal_nc:
-#ifdef CONFIG_VIDEO_COMPOSITE
-		sunxi_composer_mode_set(mode, address);
-		sunxi_lcdc_tcon1_mode_set(mode, &clk_div, &clk_double, 0);
-		sunxi_tvencoder_mode_set();
-		sunxi_composer_enable();
-		sunxi_lcdc_enable();
-		sunxi_tvencoder_enable();
 #endif
 		break;
 	}
@@ -1306,47 +981,19 @@ static bool sunxi_has_hdmi(void)
 #endif
 }
 
-static bool sunxi_has_lcd(void)
-{
-	char *lcd_mode = CONFIG_VIDEO_LCD_MODE;
-
-	return lcd_mode[0] != 0;
-}
-
-static bool sunxi_has_vga(void)
-{
-#if defined CONFIG_VIDEO_VGA || defined CONFIG_VIDEO_VGA_VIA_LCD
-	return true;
-#else
-	return false;
-#endif
-}
-
-static bool sunxi_has_composite(void)
-{
-#ifdef CONFIG_VIDEO_COMPOSITE
-	return true;
-#else
-	return false;
-#endif
-}
 
 static enum sunxi_monitor sunxi_get_default_mon(bool allow_hdmi)
 {
-	if (allow_hdmi && sunxi_has_hdmi())
+	if (allow_hdmi && sunxi_has_hdmi()) {
 		return sunxi_monitor_dvi;
-	else if (sunxi_has_lcd())
-		return sunxi_monitor_lcd;
-	else if (sunxi_has_vga())
-		return sunxi_monitor_vga;
-	else if (sunxi_has_composite())
-		return sunxi_monitor_composite_pal;
-	else
+	} else {
 		return sunxi_monitor_none;
+	}
 }
 
 void *video_hw_init(void)
 {
+	printf("video hw init\n");
 	static GraphicDevice *graphic_device = &sunxi_display.graphic_device;
 	const struct ctfb_res_modes *mode;
 	struct ctfb_res_modes custom;
@@ -1394,14 +1041,17 @@ void *video_hw_init(void)
 			if (edid && sunxi_hdmi_edid_get_mode(&custom) == 0)
 				mode = &custom;
 		} else if (hpd) {
-			sunxi_hdmi_shutdown();
+			printf("no HPD\n");
+			//sunxi_hdmi_shutdown();
 			sunxi_display.monitor = sunxi_get_default_mon(false);
 		} /* else continue with hdmi/dvi without a cable connected */
 	}
 #endif
 
+	printf("switch sunxi_display.monitor\n");
 	switch (sunxi_display.monitor) {
 	case sunxi_monitor_none:
+		printf("no monitor found!\n");
 		return NULL;
 	case sunxi_monitor_dvi:
 	case sunxi_monitor_hdmi:
@@ -1410,39 +1060,6 @@ void *video_hw_init(void)
 			sunxi_display.monitor = sunxi_monitor_none;
 			return NULL;
 		}
-		break;
-	case sunxi_monitor_lcd:
-		if (!sunxi_has_lcd()) {
-			printf("LCD not supported on this board\n");
-			sunxi_display.monitor = sunxi_monitor_none;
-			return NULL;
-		}
-		sunxi_display.depth = video_get_params(&custom, lcd_mode);
-		mode = &custom;
-		break;
-	case sunxi_monitor_vga:
-		if (!sunxi_has_vga()) {
-			printf("VGA not supported on this board\n");
-			sunxi_display.monitor = sunxi_monitor_none;
-			return NULL;
-		}
-		sunxi_display.depth = 18;
-		break;
-	case sunxi_monitor_composite_pal:
-	case sunxi_monitor_composite_ntsc:
-	case sunxi_monitor_composite_pal_m:
-	case sunxi_monitor_composite_pal_nc:
-		if (!sunxi_has_composite()) {
-			printf("Composite video not supported on this board\n");
-			sunxi_display.monitor = sunxi_monitor_none;
-			return NULL;
-		}
-		if (sunxi_display.monitor == sunxi_monitor_composite_pal ||
-		    sunxi_display.monitor == sunxi_monitor_composite_pal_nc)
-			mode = &composite_video_modes[0];
-		else
-			mode = &composite_video_modes[1];
-		sunxi_display.depth = 24;
 		break;
 	}
 
@@ -1501,6 +1118,46 @@ void *video_hw_init(void)
 	return graphic_device;
 }
 
+void hdmi_inner_init() {
+	/* FIXME: rewrite to normal writeb */
+	#define H3_HDMI_BASE_ADDR 0x01ee0000
+	#define hdmi_writeb(priv, offset, value) \
+		writeb(priv + offset, value)
+
+	u32 priv = H3_HDMI_BASE_ADDR;
+	hdmi_writeb(priv, 0x10010, 0x45);
+	hdmi_writeb(priv, 0x10011, 0x45);
+	hdmi_writeb(priv, 0x10012, 0x52);
+	hdmi_writeb(priv, 0x10013, 0x54);
+	hdmi_writeb(priv, 0x8080,  0x00);
+	udelay(2);
+	hdmi_writeb(priv, 0xf01f, 0x00);
+	hdmi_writeb(priv, 0x8403, 0xff);
+	hdmi_writeb(priv, 0x904c, 0xff);
+	hdmi_writeb(priv, 0x904e, 0xff);
+	hdmi_writeb(priv, 0xd04c, 0xff);
+	hdmi_writeb(priv, 0x8250, 0xff);
+	hdmi_writeb(priv, 0x8a50, 0xff);
+	hdmi_writeb(priv, 0x8272, 0xff);
+	hdmi_writeb(priv, 0x40c0, 0xff);
+	hdmi_writeb(priv, 0x86f0, 0xff);
+	hdmi_writeb(priv, 0x0ee3, 0xff);
+	hdmi_writeb(priv, 0x8ee2, 0xff);
+	hdmi_writeb(priv, 0xa049, 0xf0);
+	hdmi_writeb(priv, 0xb045, 0x1e);
+	hdmi_writeb(priv, 0x00c1, 0x00);
+	hdmi_writeb(priv, 0x00c1, 0x03);
+	hdmi_writeb(priv, 0x00c0, 0x00);
+	hdmi_writeb(priv, 0x40c1, 0x10);
+	hdmi_writeb(priv, 0x0010, 0xff);
+	hdmi_writeb(priv, 0x0011, 0xff);
+	hdmi_writeb(priv, 0x8010, 0xff);
+	hdmi_writeb(priv, 0x8011, 0xff);
+	hdmi_writeb(priv, 0x0013, 0xff);
+	hdmi_writeb(priv, 0x8012, 0xff);
+	hdmi_writeb(priv, 0x8013, 0xff);
+}
+
 /*
  * Simplefb support.
  */
@@ -1524,22 +1181,6 @@ int sunxi_simplefb_setup(void *blob)
 	case sunxi_monitor_dvi:
 	case sunxi_monitor_hdmi:
 		pipeline = PIPELINE_PREFIX "de_be0-lcd0-hdmi";
-		break;
-	case sunxi_monitor_lcd:
-		pipeline = PIPELINE_PREFIX "de_be0-lcd0";
-		break;
-	case sunxi_monitor_vga:
-#ifdef CONFIG_VIDEO_VGA
-		pipeline = PIPELINE_PREFIX "de_be0-lcd0-tve0";
-#elif defined CONFIG_VIDEO_VGA_VIA_LCD
-		pipeline = PIPELINE_PREFIX "de_be0-lcd0";
-#endif
-		break;
-	case sunxi_monitor_composite_pal:
-	case sunxi_monitor_composite_ntsc:
-	case sunxi_monitor_composite_pal_m:
-	case sunxi_monitor_composite_pal_nc:
-		pipeline = PIPELINE_PREFIX "de_be0-lcd0-tve0";
 		break;
 	}
 
