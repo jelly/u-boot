@@ -1037,7 +1037,12 @@ void *video_hw_init(void)
 		/* Always call hdp_detect, as it also enables clocks, etc. */
 		ret = sunxi_hdmi_hpd_detect(hpd_delay);
 		if (ret) {
-			printf("HDMI connected: ");
+			// wrapper...
+			hdmi_inner_init();
+
+			// Init reset
+			writeb(H3_HDMI_BASE_ADDR + 0x00c1, 0x04);
+
 			if (edid && sunxi_hdmi_edid_get_mode(&custom) == 0)
 				mode = &custom;
 		} else if (hpd) {
