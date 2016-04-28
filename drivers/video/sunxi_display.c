@@ -24,6 +24,9 @@
 #include <video_fb.h>
 #include "videomodes.h"
 
+/* FIXME: move me to arch/arm/include/asm/arch-sunxi/cpu_sun8i.h */
+#define H3_HDMI_BASE_ADDR 0x01ee0000
+
 #ifdef CONFIG_VIDEO_LCD_BL_PWM_ACTIVE_LOW
 #define PWM_ON 0
 #define PWM_OFF 1
@@ -109,7 +112,6 @@ static int sunxi_hdmi_hpd_detect(int hpd_delay)
 	setbits_le32(&ccm->hdmi_clk_cfg, CCM_HDMI_CTRL_GATE);
 
 
-	#define H3_HDMI_BASE_ADDR 0x01ee0000
 	/* http://linux-sunxi.org/DWC_HDMI_Controller */
 	#define H3_HDMI_PHY_CTRL  0x01ef0020
 	#define H3_HDMI_PHY_STATUS 0x01ef0038
@@ -1125,7 +1127,6 @@ void *video_hw_init(void)
 
 void hdmi_inner_init() {
 	/* FIXME: rewrite to normal writeb */
-	#define H3_HDMI_BASE_ADDR 0x01ee0000
 	#define hdmi_writeb(priv, offset, value) \
 		writeb(priv + offset, value)
 
