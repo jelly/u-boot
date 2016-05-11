@@ -313,6 +313,7 @@ static int sunxi_hdmi_edid_get_block(int block, u8 *buf)
 
 static int sunxi_hdmi_edid_get_mode(struct ctfb_res_modes *mode)
 {
+	printf("sunxi_hdmi_edid_get_mode\n");
 	struct edid1_info edid1;
 	struct edid_cea861_info cea681[4];
 	struct edid_detailed_timing *t =
@@ -323,14 +324,112 @@ static int sunxi_hdmi_edid_get_mode(struct ctfb_res_modes *mode)
 		(struct sunxi_ccm_reg *)SUNXI_CCM_BASE;
 	int i, r, ext_blocks = 0;
 
-	/* SUNXI_HDMI_CTRL_ENABLE & PAD_CTRL0 are already set by hpd_detect */
-	writel(SUNXI_HDMI_PAD_CTRL1 | SUNXI_HDMI_PAD_CTRL1_HALVE,
-	       &hdmi->pad_ctrl1);
+	u32 to_cnt;
+	int ret = 0;
+
+	// Assume all registers are setup correctly..
+	/*
+	hdmi_writeb(priv, 0x10010, 0x45);
+	hdmi_writeb(priv, 0x10011, 0x45);
+	hdmi_writeb(priv, 0x10012, 0x52);
+	hdmi_writeb(priv, 0x10013, 0x54);
+	hdmi_writeb(priv, 0x4ee1, 0x00);
+
+	writeb(0x45, H3_HDMI_BASE_ADDR + 0x10010);
+	writeb(0x45, H3_HDMI_BASE_ADDR + 0x10011);
+	writeb(0x52, H3_HDMI_BASE_ADDR + 0x10012);
+	writeb(0x54, H3_HDMI_BASE_ADDR + 0x10013);
+	writeb(0x00, H3_HDMI_BASE_ADDR + 0x4ee1); // Hmmm.. high address?
+	*/
+
+	writeb(0x00, H3_HDMI_BASE_ADDR + 0x4ee1); // 7e09 HDMI_I2CM_SOFTRSTZ
+	
+	to_cnt = 50;
+	// FIXME: use await_completion, if it works for readb..
+	while ((readb(H3_HDMI_BASE_ADDR + 0x4ee1) & 0x01) != 0x01) {
+		udelay(10);
+		if (--to_cnt == 0) {
+			printf("sunxi_hdmi_edid_get_mode.. timeout occurred. hdmi ddc reset timeout...\n");
+		}
+	}
+
+	/* Second setup stage, still no clue what we are doing */
+	writeb(0x05, H3_HDMI_BASE_ADDR + 0x8ee3); // HDMI_I2CM_DIV
+	writeb(0x08, H3_HDMI_BASE_ADDR + 0x0ee3); // HDMI_I2CM_INT
+	writeb(0xd8, H3_HDMI_BASE_ADDR + 0x4ee2); // HDMI_I2CM_SS_SCL_HCNT_0_ADDR
+	writeb(0xfe, H3_HDMI_BASE_ADDR + 0xcee2); // HDMI_I2CM_SS_SCL_LCNT_0_ADDR
+
+	int nbyte = 128; // I guess this is right, otherwise it will be 1
+
+	u8 *buffer;
+	char off = 0;
+	char pointer = 0;
+	u8 pbuf[128];
+	ret = 0;
+	int length = 0;
+	to_cnt = 200;
+
+	while (nbyte > 0) {
+		writeb(0xa0 >> 1, H3_HDMI_BASE_ADDR + 0x0ee0);
+		writeb(off, H3_HDMI_BASE_ADDR + 0x0ee1);
+		writeb(0x60 >> 1, H3_HDMI_BASE_ADDR + 0x4ee0);
+		writeb(pointer,  H3_HDMI_BASE_ADDR + 0xcee0);
+		writeb(0x02,  H3_HDMI_BASE_ADDR + 0x0ee2);
+
+		while (1) {
+			if (readb(H3_HDMI_BASE_ADDR + 0x0013) & 0x02) {
+				writeb( (readb(H3_HDMI_BASE_ADDR + 0x0013) & 0x02), H3_HDMI_BASE_ADDR + 0x0013);
+				pbuf[length] = readb(H3_HDMI_BASE_ADDR + 0x8ee1);
+				length++;
+				break;
+			}
+			if (readb(H3_HDMI_BASE_ADDR + 0x0013) & 0x01) {
+				writeb(H3_HDMI_BASE_ADDR + 0x0013, readb(H3_HDMI_BASE_ADDR + 0x0013) & 0x01);
+				printf("hdmi ddc read error, byte cnt =%d\n", nbyte);
+				ret = -1;
+				break;
+			}
+			if (--to_cnt == 0) {
+				printf("hdmi ddc read timeout, byte cnt=%d\n", nbyte);
+				ret = -1;
+				break;
+			}
+
+			udelay(1000);
+		}
+		if (ret)
+			break;
+		nbyte--;
+		off++;
+	}
+	i = 0;
+
+	printf("print the string! length: %d\n", length);
+	while (i < length) {
+		printf("%x\n", pbuf[i]);
+		i++;
+	}
+	printf("\nEDID read done %d\n", ret);
+
+
+
+	printf("hdmi ddc all set up I guess\n");
+	
+
+
+// FIXME: does the linux EDID interface do this? Is it required?
+
+/* SUNXI_HDMI_CTRL_ENABLE & PAD_CTRL0 are already set by hpd_detect 
+writel(SUNXI_HDMI_PAD_CTRL1 | SUNXI_HDMI_PAD_CTRL1_HALVE,
+       &hdmi->pad_ctrl1);
 	writel(SUNXI_HDMI_PLL_CTRL | SUNXI_HDMI_PLL_CTRL_DIV(15),
 	       &hdmi->pll_ctrl);
 	writel(SUNXI_HDMI_PLL_DBG0_PLL3, &hdmi->pll_dbg0);
+	*/
 
-	/* Reset i2c controller */
+	// FIXME: does the linux EDID interface do this? Is it required?
+	
+	/* Reset i2c controller 
 	setbits_le32(&ccm->hdmi_clk_cfg, CCM_HDMI_CTRL_DDC_GATE);
 	writel(SUNXI_HMDI_DDC_CTRL_ENABLE |
 	       SUNXI_HMDI_DDC_CTRL_SDA_ENABLE |
@@ -353,6 +452,9 @@ static int sunxi_hdmi_edid_get_mode(struct ctfb_res_modes *mode)
 			r = -EINVAL;
 		}
 	}
+
+	*/
+	/*
 	if (r == 0) {
 		ext_blocks = edid1.extension_flag;
 		if (ext_blocks > 4)
@@ -366,14 +468,14 @@ static int sunxi_hdmi_edid_get_mode(struct ctfb_res_modes *mode)
 		}
 	}
 
-	/* Disable DDC engine, no longer needed */
+	// Disable DDC engine, no longer needed
 	clrbits_le32(&hdmi->ddc_ctrl, SUNXI_HMDI_DDC_CTRL_ENABLE);
 	clrbits_le32(&ccm->hdmi_clk_cfg, CCM_HDMI_CTRL_DDC_GATE);
 
 	if (r)
 		return r;
 
-	/* We want version 1.3 or 1.2 with detailed timing info */
+	// We want version 1.3 or 1.2 with detailed timing info
 	if (edid1.version != 1 || (edid1.revision < 3 &&
 			!EDID1_INFO_FEATURE_PREFERRED_TIMING_MODE(edid1))) {
 		printf("EDID: unsupported version %d.%d\n",
@@ -381,7 +483,7 @@ static int sunxi_hdmi_edid_get_mode(struct ctfb_res_modes *mode)
 		return -EINVAL;
 	}
 
-	/* Take the first usable detailed timing */
+	// Take the first usable detailed timing
 	for (i = 0; i < 4; i++, t++) {
 		r = video_edid_dtd_to_ctfb_res_modes(t, mode);
 		if (r == 0)
@@ -392,7 +494,7 @@ static int sunxi_hdmi_edid_get_mode(struct ctfb_res_modes *mode)
 		return -ENOENT;
 	}
 
-	/* Check for basic audio support, if found enable hdmi output */
+	// Check for basic audio support, if found enable hdmi output
 	sunxi_display.monitor = sunxi_monitor_dvi;
 	for (i = 0; i < ext_blocks; i++) {
 		if (cea681[i].extension_tag != EDID_CEA861_EXTENSION_TAG ||
@@ -402,8 +504,10 @@ static int sunxi_hdmi_edid_get_mode(struct ctfb_res_modes *mode)
 		if (EDID_CEA861_SUPPORTS_BASIC_AUDIO(cea681[i]))
 			sunxi_display.monitor = sunxi_monitor_hdmi;
 	}
+	*/
 
-	return 0;
+	//return 0;
+	return -1;
 }
 
 #endif /* CONFIG_VIDEO_HDMI */
