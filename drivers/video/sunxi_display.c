@@ -113,6 +113,8 @@ static int sunxi_hdmi_hpd_detect(int hpd_delay)
 	/* Clock on */
 	setbits_le32(&ccm->hdmi_clk_cfg, CCM_HDMI_CTRL_GATE);
 
+	writel(SUNXI_HDMI_CTRL_ENABLE, &hdmi->ctrl);
+	writel(SUNXI_HDMI_PAD_CTRL0_HDP, &hdmi->pad_ctrl0);
 
 	/* http://linux-sunxi.org/DWC_HDMI_Controller */
 	#define H3_HDMI_PHY_CTRL  0x01ef0020
@@ -147,13 +149,11 @@ static int sunxi_hdmi_hpd_detect(int hpd_delay)
 	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 2), H3_HDMI_PHY_CTRL);
 
 	udelay(40);
-	//usleep_range(40, 50); eh??
 	
 	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 19));
 	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 19), H3_HDMI_PHY_CTRL);
 
 	udelay(100);
-	//usleep_range(100, 120); eh?
 	
 	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 18));
 	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 18), H3_HDMI_PHY_CTRL);
@@ -330,16 +330,13 @@ static int sunxi_hdmi_edid_get_mode(struct ctfb_res_modes *mode)
 	int ret = 0;
 
 /* SUNXI_HDMI_CTRL_ENABLE & PAD_CTRL0 are already set by hpd_detect  */
-	/*
 	writel(SUNXI_HDMI_PAD_CTRL1 | SUNXI_HDMI_PAD_CTRL1_HALVE, &hdmi->pad_ctrl1);
 	writel(SUNXI_HDMI_PLL_CTRL | SUNXI_HDMI_PLL_CTRL_DIV(15), &hdmi->pll_ctrl);
 	writel(SUNXI_HDMI_PLL_DBG0_PLL3, &hdmi->pll_dbg0);
-	*/
 
 	// FIXME: does the linux EDID interface do this? Is it required?
 	
 	/* Reset i2c controller */
-	/*
 	setbits_le32(&ccm->hdmi_clk_cfg, CCM_HDMI_CTRL_DDC_GATE);
 	writel(SUNXI_HMDI_DDC_CTRL_ENABLE |
 	       SUNXI_HMDI_DDC_CTRL_SDA_ENABLE |
@@ -349,11 +346,8 @@ static int sunxi_hdmi_edid_get_mode(struct ctfb_res_modes *mode)
 		return -EIO;
 
 	writel(SUNXI_HDMI_DDC_CLOCK, &hdmi->ddc_clock);
-#ifndef CONFIG_MACH_SUN6I
 	writel(SUNXI_HMDI_DDC_LINE_CTRL_SDA_ENABLE |
 	       SUNXI_HMDI_DDC_LINE_CTRL_SCL_ENABLE, &hdmi->ddc_line_ctrl);
-#endif
-*/
 
 	// Assume all registers are setup correctly..
 	/*
