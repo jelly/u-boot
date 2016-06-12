@@ -198,7 +198,7 @@ static int sunxi_hdmi_hpd_detect(int hpd_delay)
 	hdmi_inner_init();
 
 	/* bsp_hdmi_hrst(); Init HPD reset */
-	//writeb(H3_HDMI_BASE_ADDR + 0x00c1, 0x04); // 5001 HDMI_A_HDCPCFG1
+	writeb(H3_HDMI_BASE_ADDR + 0x00c1, 0x04); // 5001 HDMI_A_HDCPCFG1
 
 	writel(SUNXI_HDMI_CTRL_ENABLE, &hdmi->ctrl);
 	writel(SUNXI_HDMI_PAD_CTRL0_HDP, &hdmi->pad_ctrl0);
@@ -212,7 +212,7 @@ static int sunxi_hdmi_hpd_detect(int hpd_delay)
 	int ret = readl(H3_HDMI_PHY_STATUS) & 0x80000 ? 1 : 0;
 
 	hdmi_read_unlock();
-
+	
 	return ret;
 }
 
