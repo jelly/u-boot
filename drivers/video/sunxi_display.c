@@ -82,6 +82,81 @@ static int await_completion(u32 *reg, u32 mask, u32 val)
 	return 0;
 }
 
+int hdmi_phy_init()
+{
+	/*  arch/arm/mach-sunxi/include/mach/sun8i/platform-sun8iw7p1.h:#define SUNXI_HDMI_PBASE                0x01ee0000 */
+	/* http://linux-sunxi.org/DWC_HDMI_Controller */
+	#define H3_HDMI_PHY_CTRL  0x01ef0020
+	#define H3_HDMI_PHY_STATUS 0x01ef0038
+
+	// FIXME: remove, also this is defined thrice already in the u-boot code base..
+	#define msleep(a)   udelay(a * 1000)
+
+	/* hdmi_phy_init() d2_hdmi_h3.c from h3-hdmi from Francois */
+	writel(0, H3_HDMI_PHY_CTRL);
+	writel(1 << 0, H3_HDMI_PHY_CTRL);
+
+	udelay(5);
+
+	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 16), H3_HDMI_PHY_CTRL);
+	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 1), H3_HDMI_PHY_CTRL);
+
+	udelay(10);
+
+	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 2), H3_HDMI_PHY_CTRL);
+
+	udelay(5);
+
+	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 2), H3_HDMI_PHY_CTRL);
+
+	udelay(50); // usleep_range(40, 50);
+	
+	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 19), H3_HDMI_PHY_CTRL);
+
+	udelay(120); // usleep_range(100, 120);
+	
+	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 18), H3_HDMI_PHY_CTRL);
+	writel(readl(H3_HDMI_PHY_CTRL) | (7 << 4), H3_HDMI_PHY_CTRL);
+
+
+	int init = 0;
+	unsigned long tmo = timer_get_us() + 500 * 1000; // FIXME:..
+	while (timer_get_us() < tmo) {
+		if ((readl(H3_HDMI_PHY_STATUS) & 0x80) == 0x80) {
+			init = 1;
+			break;
+		}
+	}
+
+	if (init != 1) {
+		printf("hdmi phy init timeout\n");
+		return 1;
+	}
+
+	writel(readl(H3_HDMI_PHY_CTRL) | (0xf << 8), H3_HDMI_PHY_CTRL);
+	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 7), H3_HDMI_PHY_CTRL);
+
+	writel(0x39dc5040, H3_HDMI_BASE_ADDR + 0x1002c);
+	writel(0x80084343, H3_HDMI_BASE_ADDR + 0x10030);
+
+	msleep(10);
+
+	writel(0x00000001, H3_HDMI_BASE_ADDR + 0x10034);
+	writel(readl(H3_HDMI_BASE_ADDR + 0x1002c) | 0x02000000, H3_HDMI_BASE_ADDR + 0x1002c);
+
+	msleep(100);
+
+	u32 tmp = readl(H3_HDMI_BASE_ADDR + 0x10038);
+	writel(readl(H3_HDMI_BASE_ADDR + 0x1002c) | 0xc0000000, H3_HDMI_BASE_ADDR + 0x1002c);
+	writel(readl(H3_HDMI_BASE_ADDR + 0x1002c) | ((tmp >> 11) & 0x3f), H3_HDMI_BASE_ADDR + 0x1002c);
+
+	writel(0x01ff0f7f, H3_HDMI_BASE_ADDR + 0x10020);
+	writel(0x80639000, H3_HDMI_BASE_ADDR + 0x10024);
+	writel(0x0f81c405, H3_HDMI_BASE_ADDR + 0x10028);
+
+	return 0;
+}
+
 static int sunxi_hdmi_hpd_detect(int hpd_delay)
 {
 	struct sunxi_ccm_reg * const ccm =
@@ -116,119 +191,46 @@ static int sunxi_hdmi_hpd_detect(int hpd_delay)
 	writel(SUNXI_HDMI_CTRL_ENABLE, &hdmi->ctrl);
 	writel(SUNXI_HDMI_PAD_CTRL0_HDP, &hdmi->pad_ctrl0);
 
-	/* http://linux-sunxi.org/DWC_HDMI_Controller */
-	#define H3_HDMI_PHY_CTRL  0x01ef0020
+	/* Initialize the HDMI PHY requires clocks to best set correctly */
+	hdmi_phy_init();
+
+	// bsp_hdmi_inner_init
+	hdmi_inner_init();
+
+	// bsp_hdmi_hrst();
+	// Init reset
+	//writeb(H3_HDMI_BASE_ADDR + 0x00c1, 0x04); // 5001 HDMI_A_HDCPCFG1
+
+	writel(SUNXI_HDMI_CTRL_ENABLE, &hdmi->ctrl);
+	writel(SUNXI_HDMI_PAD_CTRL0_HDP, &hdmi->pad_ctrl0);
+
+	// bsp_hdmi_get_hpd
 	#define H3_HDMI_PHY_STATUS 0x01ef0038
 
-	// FIXME: remove, also this is defined thrice already in the u-boot code base..
-	#define msleep(a)   udelay(a * 1000)
-	/* bsp_hdmi_init() from h3-hdmi from Francois */
+	hdmi_read_lock();
 
-	/* 
-	 * arch/arm/mach-sunxi/include/mach/sun8i/platform-sun8iw7p1.h:#define SUNXI_HDMI_PBASE                0x01ee0000
-	 *
-	 */
-	//hdmi_writel(priv, 0x10020, 0);
-	writel(0, H3_HDMI_PHY_CTRL);
-	//hdmi_writel(priv, 0x10020, 1 << 0);
-	writel(1 << 0, H3_HDMI_PHY_CTRL);
-	udelay(5);
+	msleep(200);
+	int ret = readl(H3_HDMI_PHY_STATUS) & 0x80000 ? 1 : 0;
 
-	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 16));
-	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 16), H3_HDMI_PHY_CTRL);
+	hdmi_read_unlock();
 
-	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 1));
-	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 1), H3_HDMI_PHY_CTRL);
+	return ret;
+}
 
-	udelay(10);
-	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 2));
-	writel(readl(H3_HDMI_PHY_CTRL) | (1<<2), H3_HDMI_PHY_CTRL);
+void hdmi_read_lock(void)
+{
+	writel(0x45, H3_HDMI_BASE_ADDR + 0x10010);
+	writel(0x45, H3_HDMI_BASE_ADDR + 0x10011);
+	writel(0x52, H3_HDMI_BASE_ADDR + 0x10012);
+	writel(0x54, H3_HDMI_BASE_ADDR + 0x10013);
+}
 
-	udelay(5);
-	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 3));
-	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 2), H3_HDMI_PHY_CTRL);
-
-	udelay(40);
-	
-	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 19));
-	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 19), H3_HDMI_PHY_CTRL);
-
-	udelay(100);
-	
-	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 18));
-	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 18), H3_HDMI_PHY_CTRL);
-
-	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (7 << 4));
-	writel(readl(H3_HDMI_PHY_CTRL) | (7 << 4), H3_HDMI_PHY_CTRL);
-
-
-	int init = 0;
-	while (timer_get_us() < tmo) {
-		if ((readl(H3_HDMI_PHY_STATUS) & 0x80) == 0x80) {
-			printf("first init stage completed\n");
-			init = 1;
-			break;
-		}
-	}
-
-	if (init != 1) {
-		return 1;
-	}
-
-	//writel(SUNXI_HDMI_CTRL_ENABLE, &hdmi->ctrl);
-	//writel(SUNXI_HDMI_PAD_CTRL0_HDP, &hdmi->pad_ctrl0);
-	writeb(0x45 ,0x1ef0010);
-	writeb(0x45 ,0x1ef0011);
-	writeb(0x52 ,0x1ef0012);
-	writeb(0x54 ,0x1ef0013);
-
-	while (timer_get_us() < tmo) {
-		if (readl(0x1ef0038) & 0x80000) {
-			printf("hpd support found!\n");
-			return 1;
-		}
-	}
-
-	/* Further init stuff in bsp_hdmi_init() */
-	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (0xf << 8));
-	writel(readl(H3_HDMI_PHY_CTRL) | (0xf << 8), H3_HDMI_PHY_CTRL);
-
-	//hdmi_writel(priv, 0x10020, hdmi_readl(priv, 0x10020) | (1 << 7));
-	writel(readl(H3_HDMI_PHY_CTRL) | (1 << 7), H3_HDMI_PHY_CTRL);
-
-	//hdmi_writel(priv, 0x1002c, 0x39dc5040);
-	writel(0x39dc5040, H3_HDMI_BASE_ADDR + 0x1002c);
-
-	//hdmi_writel(priv, 0x10030, 0x80084343); // H3_HDMI_PHY_CLK???
-	writel(0x80084343, H3_HDMI_BASE_ADDR + 0x10030);
-
-	msleep(10);
-	//hdmi_writel(priv, 0x10034, 0x00000001);
-	writel(0x00000001, H3_HDMI_BASE_ADDR + 0x10034);
-
-	//hdmi_writel(priv, 0x1002c, hdmi_readl(priv, 0x1002c) | 0x02000000);
-	writel(readl(H3_HDMI_BASE_ADDR + 0x1002c) | 0x02000000, H3_HDMI_BASE_ADDR + 0x1002c);
-
-	msleep(100);
-
-	//tmp = hdmi_readl(priv, 0x10038);
-	u32 tmp = readl(H3_HDMI_BASE_ADDR + 0x10038);
-	
-	//hdmi_writel(priv, 0x1002c, hdmi_readl(priv, 0x1002c) | 0xc0000000);
-	writel(readl(H3_HDMI_BASE_ADDR + 0x1002c) | 0xc0000000, H3_HDMI_BASE_ADDR + 0x1002c);
-
-	//hdmi_writel(priv, 0x1002c, hdmi_readl(priv, 0x1002c) | ((tmp >> 11) & 0x3f));
-	writel(readl(H3_HDMI_BASE_ADDR + 0x1002c) | ((tmp >> 11) & 0x3f), H3_HDMI_BASE_ADDR + 0x1002c);
-
-	//hdmi_writel(priv, 0x10020, 0x01ff0f7f);
-	writel(0x01ff0f7f, H3_HDMI_BASE_ADDR + 0x10020);
-	//hdmi_writel(priv, 0x10024, 0x80639000);
-	writel(0x80639000, H3_HDMI_BASE_ADDR + 0x10024);
-	//hdmi_writel(priv, 0x10028, 0x0f81c405);
-	writel(0x0f81c405, H3_HDMI_BASE_ADDR + 0x10028);
-
-	printf("no hpd support\n");
-	return 0;
+void hdmi_read_unlock(void)
+{
+	writel(0x52, H3_HDMI_BASE_ADDR + 0x10010);
+	writel(0x54, H3_HDMI_BASE_ADDR + 0x10011);
+	writel(0x41, H3_HDMI_BASE_ADDR + 0x10012);
+	writel(0x57, H3_HDMI_BASE_ADDR + 0x10013);
 }
 
 static void sunxi_hdmi_shutdown(void)
@@ -329,7 +331,7 @@ static int sunxi_hdmi_edid_get_mode(struct ctfb_res_modes *mode)
 	u32 to_cnt;
 	int ret = 0;
 
-/* SUNXI_HDMI_CTRL_ENABLE & PAD_CTRL0 are already set by hpd_detect  */
+	/* SUNXI_HDMI_CTRL_ENABLE & PAD_CTRL0 are already set by hpd_detect  */
 	writel(SUNXI_HDMI_PAD_CTRL1 | SUNXI_HDMI_PAD_CTRL1_HALVE, &hdmi->pad_ctrl1);
 	writel(SUNXI_HDMI_PLL_CTRL | SUNXI_HDMI_PLL_CTRL_DIV(15), &hdmi->pll_ctrl);
 	writel(SUNXI_HDMI_PLL_DBG0_PLL3, &hdmi->pll_dbg0);
@@ -1135,28 +1137,25 @@ void *video_hw_init(void)
 		printf("Unknown monitor: '%s', falling back to '%s'\n",
 		       mon, sunxi_get_mon_desc(sunxi_display.monitor));
 
-#ifdef CONFIG_VIDEO_HDMI
+
 	/* If HDMI/DVI is selected do HPD & EDID, and handle fallback */
 	if (sunxi_display.monitor == sunxi_monitor_dvi ||
 	    sunxi_display.monitor == sunxi_monitor_hdmi) {
 		/* Always call hdp_detect, as it also enables clocks, etc. */
 		ret = sunxi_hdmi_hpd_detect(hpd_delay);
 		if (ret) {
+			printf("HPD support found\n");
 			// wrapper...
-			hdmi_inner_init();
 
-			// Init reset
-			writeb(H3_HDMI_BASE_ADDR + 0x00c1, 0x04);
 
 			if (edid && sunxi_hdmi_edid_get_mode(&custom) == 0)
 				mode = &custom;
-		} else if (hpd) {
-			printf("no HPD\n");
+		} else {
+			printf("no HPD support found\n");
 			//sunxi_hdmi_shutdown();
-			sunxi_display.monitor = sunxi_get_default_mon(false);
+			//sunxi_display.monitor = sunxi_get_default_mon(false);
 		} /* else continue with hdmi/dvi without a cable connected */
 	}
-#endif
 
 	printf("switch sunxi_display.monitor\n");
 	switch (sunxi_display.monitor) {
@@ -1229,42 +1228,49 @@ void *video_hw_init(void)
 }
 
 void hdmi_inner_init() {
+	hdmi_read_lock();
+
 	/* FIXME: rewrite to normal writeb */
 	#define hdmi_writeb(priv, offset, value) \
 		writeb(priv + offset, value)
 
-	u32 priv = H3_HDMI_BASE_ADDR;
-	hdmi_writeb(priv, 0x10010, 0x45);
-	hdmi_writeb(priv, 0x10011, 0x45);
-	hdmi_writeb(priv, 0x10012, 0x52);
-	hdmi_writeb(priv, 0x10013, 0x54);
-	hdmi_writeb(priv, 0x8080,  0x00);
+	// software reset 
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x8080,  0x00);
 	udelay(2);
-	hdmi_writeb(priv, 0xf01f, 0x00);
-	hdmi_writeb(priv, 0x8403, 0xff);
-	hdmi_writeb(priv, 0x904c, 0xff);
-	hdmi_writeb(priv, 0x904e, 0xff);
-	hdmi_writeb(priv, 0xd04c, 0xff);
-	hdmi_writeb(priv, 0x8250, 0xff);
-	hdmi_writeb(priv, 0x8a50, 0xff);
-	hdmi_writeb(priv, 0x8272, 0xff);
-	hdmi_writeb(priv, 0x40c0, 0xff);
-	hdmi_writeb(priv, 0x86f0, 0xff);
-	hdmi_writeb(priv, 0x0ee3, 0xff);
-	hdmi_writeb(priv, 0x8ee2, 0xff);
-	hdmi_writeb(priv, 0xa049, 0xf0);
-	hdmi_writeb(priv, 0xb045, 0x1e);
-	hdmi_writeb(priv, 0x00c1, 0x00);
-	hdmi_writeb(priv, 0x00c1, 0x03);
-	hdmi_writeb(priv, 0x00c0, 0x00);
-	hdmi_writeb(priv, 0x40c1, 0x10);
-	hdmi_writeb(priv, 0x0010, 0xff);
-	hdmi_writeb(priv, 0x0011, 0xff);
-	hdmi_writeb(priv, 0x8010, 0xff);
-	hdmi_writeb(priv, 0x8011, 0xff);
-	hdmi_writeb(priv, 0x0013, 0xff);
-	hdmi_writeb(priv, 0x8012, 0xff);
-	hdmi_writeb(priv, 0x8013, 0xff);
+
+	// mask all inerrupt
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0xf01f, 0x00);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x8403, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x904c, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x904e, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0xd04c, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x8250, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x8a50, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x8272, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x40c0, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x86f0, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x0ee3, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x8ee2, 0xff);
+
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0xa049, 0xf0);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0xb045, 0x1e);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x00c1, 0x00);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x00c1, 0x03);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x00c0, 0x00);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x40c1, 0x10);
+
+	// H3_SOC specific
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x0081, 0xfd);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x0081, 0x00);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x0081, 0xfd);
+
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x0010, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x0011, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x8010, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x8011, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x0013, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x8012, 0xff);
+	hdmi_writeb(H3_HDMI_BASE_ADDR, 0x8013, 0xff);
 }
 
 /*
