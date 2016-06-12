@@ -350,25 +350,13 @@ static int sunxi_hdmi_edid_get_mode(struct ctfb_res_modes *mode)
 	writel(SUNXI_HMDI_DDC_LINE_CTRL_SDA_ENABLE |
 	       SUNXI_HMDI_DDC_LINE_CTRL_SCL_ENABLE, &hdmi->ddc_line_ctrl);
 
-	// Assume all registers are setup correctly..
-	/*
-	hdmi_writeb(priv, 0x10010, 0x45);
-	hdmi_writeb(priv, 0x10011, 0x45);
-	hdmi_writeb(priv, 0x10012, 0x52);
-	hdmi_writeb(priv, 0x10013, 0x54);
-	hdmi_writeb(priv, 0x4ee1, 0x00);
-
-	writeb(0x45, H3_HDMI_BASE_ADDR + 0x10010);
-	writeb(0x45, H3_HDMI_BASE_ADDR + 0x10011);
-	writeb(0x52, H3_HDMI_BASE_ADDR + 0x10012);
-	writeb(0x54, H3_HDMI_BASE_ADDR + 0x10013);
-	writeb(0x00, H3_HDMI_BASE_ADDR + 0x4ee1); // Hmmm.. high address?
-	*/
+	hdmi_read_lock();
 
 	writeb(0x00, H3_HDMI_BASE_ADDR + 0x4ee1); // 7e09 HDMI_I2CM_SOFTRSTZ
 	
 	to_cnt = 50;
-	// FIXME: use await_completion, if it works for readb..
+
+	/* FIXME: use await_completion, if it works for readb.. */
 	while ((readb(H3_HDMI_BASE_ADDR + 0x4ee1) & 0x01) != 0x01) {
 		udelay(10);
 		if (--to_cnt == 0) {
@@ -434,79 +422,8 @@ static int sunxi_hdmi_edid_get_mode(struct ctfb_res_modes *mode)
 	}
 	printf("\nEDID read done %d\n", ret);
 
+	hdmi_read_unlock();
 
-
-	printf("hdmi ddc all set up I guess\n");
-	
-
-
-// FIXME: does the linux EDID interface do this? Is it required?
-
-
-	/*
-	r = sunxi_hdmi_edid_get_block(0, (u8 *)&edid1);
-	if (r == 0) {
-		r = edid_check_info(&edid1);
-		if (r) {
-			printf("EDID: invalid EDID data\n");
-			r = -EINVAL;
-		}
-	}
-
-	*/
-	/*
-	if (r == 0) {
-		ext_blocks = edid1.extension_flag;
-		if (ext_blocks > 4)
-			ext_blocks = 4;
-		for (i = 0; i < ext_blocks; i++) {
-			if (sunxi_hdmi_edid_get_block(1 + i,
-						(u8 *)&cea681[i]) != 0) {
-				ext_blocks = i;
-				break;
-			}
-		}
-	}
-
-	// Disable DDC engine, no longer needed
-	clrbits_le32(&hdmi->ddc_ctrl, SUNXI_HMDI_DDC_CTRL_ENABLE);
-	clrbits_le32(&ccm->hdmi_clk_cfg, CCM_HDMI_CTRL_DDC_GATE);
-
-	if (r)
-		return r;
-
-	// We want version 1.3 or 1.2 with detailed timing info
-	if (edid1.version != 1 || (edid1.revision < 3 &&
-			!EDID1_INFO_FEATURE_PREFERRED_TIMING_MODE(edid1))) {
-		printf("EDID: unsupported version %d.%d\n",
-		       edid1.version, edid1.revision);
-		return -EINVAL;
-	}
-
-	// Take the first usable detailed timing
-	for (i = 0; i < 4; i++, t++) {
-		r = video_edid_dtd_to_ctfb_res_modes(t, mode);
-		if (r == 0)
-			break;
-	}
-	if (i == 4) {
-		printf("EDID: no usable detailed timing found\n");
-		return -ENOENT;
-	}
-
-	// Check for basic audio support, if found enable hdmi output
-	sunxi_display.monitor = sunxi_monitor_dvi;
-	for (i = 0; i < ext_blocks; i++) {
-		if (cea681[i].extension_tag != EDID_CEA861_EXTENSION_TAG ||
-		    cea681[i].revision < 2)
-			continue;
-
-		if (EDID_CEA861_SUPPORTS_BASIC_AUDIO(cea681[i]))
-			sunxi_display.monitor = sunxi_monitor_hdmi;
-	}
-	*/
-
-	//return 0;
 	return -1;
 }
 
