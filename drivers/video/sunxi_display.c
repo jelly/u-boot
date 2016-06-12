@@ -89,7 +89,7 @@ int hdmi_phy_init()
 	#define H3_HDMI_PHY_CTRL  0x01ef0020
 	#define H3_HDMI_PHY_STATUS 0x01ef0038
 
-	// FIXME: remove, also this is defined thrice already in the u-boot code base..
+	/* FIXME: remove, also this is defined thrice already in the u-boot code base.. */
 	#define msleep(a)   udelay(a * 1000)
 
 	/* hdmi_phy_init() d2_hdmi_h3.c from h3-hdmi from Francois */
@@ -194,22 +194,21 @@ static int sunxi_hdmi_hpd_detect(int hpd_delay)
 	/* Initialize the HDMI PHY requires clocks to best set correctly */
 	hdmi_phy_init();
 
-	// bsp_hdmi_inner_init
+	/* bsp_hdmi_inner_init */
 	hdmi_inner_init();
 
-	// bsp_hdmi_hrst();
-	// Init reset
+	/* bsp_hdmi_hrst(); Init HPD reset */
 	//writeb(H3_HDMI_BASE_ADDR + 0x00c1, 0x04); // 5001 HDMI_A_HDCPCFG1
 
 	writel(SUNXI_HDMI_CTRL_ENABLE, &hdmi->ctrl);
 	writel(SUNXI_HDMI_PAD_CTRL0_HDP, &hdmi->pad_ctrl0);
 
-	// bsp_hdmi_get_hpd
+	/* bsp_hdmi_get_hpd */
 	#define H3_HDMI_PHY_STATUS 0x01ef0038
 
 	hdmi_read_lock();
 
-	msleep(200);
+	msleep(200); // FIXME: random sleep added here, seems to be required for reading.
 	int ret = readl(H3_HDMI_PHY_STATUS) & 0x80000 ? 1 : 0;
 
 	hdmi_read_unlock();
