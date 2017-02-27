@@ -47,11 +47,11 @@ def RunTests():
         suite = unittest.TestLoader().loadTestsFromTestCase(module)
         suite.run(result)
 
-    print result
+    print(result)
     for test, err in result.errors:
-        print test.id(), err
+        print(test.id(), err)
     for test, err in result.failures:
-        print err
+        print(err)
 
 def RunTestCoverage():
     """Run the tests and check that we get 100% coverage"""
@@ -63,8 +63,8 @@ def RunTestCoverage():
     stdout = command.Output('coverage', 'report')
     coverage = stdout.splitlines()[-1].split(' ')[-1]
     if coverage != '100%':
-        print stdout
-        print "Type 'coverage html' to get a report in htmlcov/index.html"
+        print(stdout)
+        print("Type 'coverage html' to get a report in htmlcov/index.html")
         raise ValueError('Coverage error: %s, but should be 100%%' % coverage)
 
 
@@ -101,9 +101,9 @@ def RunBinman(options, args):
         try:
             ret_code = control.Binman(options, args)
         except Exception as e:
-            print 'binman: %s' % e
+            print('binman: %s' % e)
             if options.debug:
-                print
+                print('')
                 traceback.print_exc()
             ret_code = 1
     return ret_code
