@@ -122,7 +122,7 @@ libfdt:
 tools/_libfdt.so: $(patsubst %.o,%.c,$(LIBFDT_OBJS)) tools/libfdt_wrap.c
 	LDFLAGS="$(HOSTLDFLAGS)" python $(srctree)/lib/libfdt/setup.py \
 		"$(_hostc_flags)" $^
-	mv _libfdt.so $@
+	mv _libfdt*.so $@
 
 tools/libfdt_wrap.c: $(srctree)/lib/libfdt/libfdt.swig
 	swig -python -o $@ $<
