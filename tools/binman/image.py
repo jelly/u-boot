@@ -173,7 +173,7 @@ class Image:
         """
         for entry in self._entries.values():
             pos_dict = entry.GetPositions()
-            for name, info in pos_dict.iteritems():
+            for name, info in pos_dict.items():
                 self._SetEntryPosSize(name, *info)
 
     def PackEntries(self):
