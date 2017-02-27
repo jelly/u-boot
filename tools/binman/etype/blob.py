@@ -22,7 +22,7 @@ class Entry_blob(Entry):
         return True
 
     def ReadContents(self):
-        with open(self._pathname) as fd:
+        with open(self._pathname, 'rb') as fd:
             # We assume the data is small enough to fit into memory. If this
             # is used for large filesystem image that might not be true.
             # In that case, Image.BuildImage() could be adjusted to use a
