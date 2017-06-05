@@ -265,7 +265,7 @@ class Fdt:
         if self._fname:
             self._fname = fdt_util.EnsureCompiled(self._fname)
 
-            with open(self._fname) as fd:
+            with open(self._fname, 'rb') as fd:
                 self._fdt = bytearray(fd.read())
                 self._fdt_obj = libfdt.Fdt(self._fdt)
 
