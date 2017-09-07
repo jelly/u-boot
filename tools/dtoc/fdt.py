@@ -37,17 +37,20 @@ class Prop:
             bytes
         type: Value type
     """
-    def __init__(self, node, offset, name, bytes):
+    def __init__(self, node, offset, name, byte_values):
         self._node = node
         self._offset = offset
         self.name = name
         self.value = None
-        self.bytes = str(bytes)
-        if not bytes:
+        if sys.version_info[0] >= 3:
+            self.bytes = bytes(byte_values)
+        else:
+            self.bytes = str(bytes)
+        if not byte_values:
             self.type = TYPE_BOOL
             self.value = True
             return
-        self.type, self.value = self.BytesToValue(bytes)
+        self.type, self.value = self.BytesToValue(byte_values)
 
     def GetPhandle(self):
         """Get a (single) phandle value from a property
@@ -90,7 +93,7 @@ class Prop:
             while len(self.value) < len(newprop.value):
                 self.value.append(val)
 
-    def BytesToValue(self, bytes):
+    def BytesToValue(self, byte_values):
         """Converts a string of bytes into a type and value
 
         Args:
@@ -105,9 +108,12 @@ class Prop:
                     TYPE_INT: a byte-swapped integer stored as a 4-byte string
                     TYPE_BYTE: a byte stored as a single-byte string
         """
-        bytes = str(bytes)
-        size = len(bytes)
-        strings = bytes.split('\0')
+        if sys.version_info[0] >= 3:
+            byte_values = bytes(byte_values)
+        else:
+            byte_values = str(byte_values)
+        size = len(byte_values)
+        strings = byte_values.split(b'\0')
         is_string = True
         count = len(strings) - 1
         if count > 0 and not strings[-1]:
@@ -128,12 +134,12 @@ class Prop:
                 return TYPE_STRING, strings[:-1]
         if size % 4:
             if size == 1:
-                return TYPE_BYTE, bytes[0]
+                return TYPE_BYTE, byte_values[0]
             else:
-                return TYPE_BYTE, list(bytes)
+                return TYPE_BYTE, list(byte_values)
         val = []
         for i in range(0, size, 4):
-            val.append(bytes[i:i + 4])
+            val.append(byte_values[i:i + 4])
         if size == 4:
             return TYPE_INT, val[0]
         else:
